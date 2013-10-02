@@ -133,12 +133,12 @@
         " lc proxies in front of one pool of "
         (* instances processes)
         " processes")
-     (retry 3
-            (lb-rr ;; simulating DNS RR
-             (pool proxies
-                   (cable 5
-                          (lb-min-conn :lb {:error-hold-time 1000}
-                                       (faulty-dynos (* instances processes)))))))))
+   (retry 3
+          (lb-rr ;; simulating DNS RR
+           (pool proxies
+                 (cable 5
+                        (faulty-lb
+                         (faulty-dynos (* instances processes)))))))))
 
 
 (defn proposed-adserver-faulty-test
@@ -154,8 +154,8 @@
           (lb-rr ;; via anycast IPv4 with any luck
            (pool proxies
                  (cable 5
-                        (lb-min-conn :lb {:error-hold-time 1000}
-                                     (faulty-dynos 23))))))))
+                        (faulty-lb
+                         (faulty-dynos 23))))))))
 
 
 ;; (deftest ^:random adserver-random-8
