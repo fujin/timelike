@@ -48,9 +48,12 @@
     (println "99th %: " q99)
     (println "Max:    " q1)))
 
-(def n 1000000)
-(def interval 1.5)
+(def n 100000)
+(def interval 1)
 (def pool-size 215)
+(def proxies 8)
+(def instances 215)
+(def processes 23)
 
 (defn test-node
   [name node]
@@ -60,34 +63,35 @@
     (pstats @results)
     (println)))
 
-(defn adserver
-  "A multi-threaded libevent, request-queuing server, with a fixed per-request
+(defn dyno
+  "A singlethreaded, request-queuing server, with a fixed per-request
   overhead plus an exponentially distributed time to process the request,
-  connected by an extremely short LGA11 network cable."
+  connected by a short network cable."
   []
   (cable 2
-         (queue-fixed-concurrency 24
-                                  (delay-fixed 5
-                                               (delay-exponential 100
-                                                                  (server :libevent))))))
+         (queue-exclusive
+          (delay-fixed 20
+                       (delay-exponential 100
+                                          (server :rails))))))
 
-(defn faulty-adserver
+(defn faulty-dyno
+  "Like a dyno, but only 90% available."
   []
   (cable 2
-         (queue-fixed-concurrency 24
-                                  (faulty 20000 1000
-                                          (delay-fixed 5
-                                                       (delay-exponential 100
-                                                                          (server :libevent)))))))
-(defn faulty-adservers
-  "A pool of n faulty adserver instances"
-  [n]
-  (pool n (faulty-adserver)))
+         (faulty 20000 1000
+                 (queue-exclusive
+                  (delay-fixed 20
+                               (delay-exponential 100
+                                                  (server :rails)))))))
 
-(defn healthy-adservers
-  "A pool of n healthy adserver instances"
+(defn dynos
+  "A pool of n dynos"
   [n]
-  (pool n (adserver)))
+  (pool n (dyno)))
+
+(defn faulty-dynos
+  [n]
+  (pool n (faulty-dyno)))
 
 (defn faulty-lb
   [pool]
@@ -95,37 +99,103 @@
           (retry 3
                  (lb-min-conn :lb {:error-hold-time 1000}
                               pool))))
-
-(defn healthy-lb
-  [pool]
-  (retry 3
-         (lb-min-conn :lb {:error-hold-time 1000}
-                      pool)))
-
-(deftest ^:current production-adserver-current
-  (test-node "Current: Retry -> 10x random adserver-proxy -> 215 Adserver processes"
-             (let [adservers (pool pool-size (faulty-adserver))]
-               (retry 3
+(defn adserver-random-test
+  [n]
+  (test-node (str pool-size " adservers with " n " random routers")
+             (retry 3
                     (lb-random
-                     (pool 10
-                           (cable 5
-                                  (healthy-lb
-                                   adservers))))))))
+                     (pool n
+                           (lb-random
+                            (dynos pool-size)))))))
 
-(deftest ^:proposed production-adserver-proposed-faulty)
-(test-node "Retry -> 10x random adserver_reverse_proxy -> 10x adserver faulty leastconn -> 23x faulty Adserver process"
-           (retry 3
-                  (lb-random
-                   (pool 10
-                         (cable 1
-                                (faulty-lb
-                                 (faulty-adservers 23)))))))
+(defn adserver-leastconn-test
+  [n]
+  (test-node (str pool-size " adservers with " n " leastconn routers")
+             (retry 3
+                    (lb-random
+                     (pool n
+                           (lb-min-conn :lb {:error-hold-time 1000}
+                                        (dynos pool-size)))))))
 
-(deftest ^:proposed production-adserver-proposed-healthy)
-(test-node "Retry -> 10x random adserver_reverse_proxy -> 10x adserver healthy leastconn -> 23x healthy Adserver process"
-           (retry 3
-                  (lb-random
-                   (pool 10
-                         (cable 1
-                                (healthy-lb
-                                        (healthy-adservers 23)))))))
+(defn adserver-faulty-random-test
+  [n]
+  (test-node (str pool-size " adservers @ 90% availability with " n " random routers")
+             (retry 3
+                    (lb-random
+                     (pool n
+                           (lb-random
+                            (faulty-dynos pool-size)))))))
+
+(defn adserver-faulty-leastconn-test
+  [proxies instances processes]
+  (test-node
+   (str proxies
+        " lc proxies in front of one pool of "
+        (* instances processes)
+        " processes")
+     (retry 3
+            (lb-rr ;; simulating DNS RR
+             (pool proxies
+                   (cable 5
+                          (lb-min-conn :lb {:error-hold-time 1000}
+                                       (faulty-dynos (* instances processes)))))))))
+
+
+(defn proposed-adserver-faulty-test
+  [proxies instances processes]
+  (test-node
+   (str proxies
+        " random proxies in front of "
+        instances
+        " instances, each w/ distinct pool of least-conn "
+        processes
+        " processes over loopback")
+   (retry 3
+          (lb-rr ;; via anycast IPv4 with any luck
+           (pool proxies
+                 (cable 5
+                        (lb-min-conn :lb {:error-hold-time 1000}
+                                     (faulty-dynos 23))))))))
+
+
+;; (deftest ^:random adserver-random-8
+;;   (adserver-random-test 8))
+
+;; (deftest ^:leastconn adserver-leastconn-8
+;;   (adserver-leastconn-test 8))
+
+;; (deftest ^:random adserver-faulty-random-8
+;;   (adserver-faulty-random-test 8))
+
+(deftest ^:leastconn adserver-faulty-leastconn
+  (adserver-faulty-leastconn-test))
+
+(deftest ^:proposed ^:hybrid adserver-hybrid
+  (proposed-adserver-faulty-test))
+
+;; (deftest ^:current production-adserver-current-faulty
+;;   (test-node "Current: Retry -> 10x random adserver-proxy -> 215 faulty Adserver processes"
+;;              (let [adservers (pool pool-size (faulty-adserver))]
+;;                (retry 3
+;;                       (lb-random
+;;                        (pool 10
+;;                              (cable 5
+;;                                     (adservers))))))))
+
+;; (deftest ^:proposed production-adserver-proposed-faulty
+;;   (test-node "Retry -> 10x random adserver_reverse_proxy -> 10x adserver faulty leastconn -> 23x faulty Adserver process"
+;;              (retry 3
+;;                     (lb-random
+;;                      (pool 10
+;;                            (cable 1
+;;                                   (faulty-lb
+;;                                    (faulty-adservers 23))))))))
+
+;; (deftest ^:proposed production-adserver-proposed-healthy
+;;   (test-node "Retry -> 10x random adserver_reverse_proxy -> 10x adserver healthy leastconn -> 23x healthy Adserver process"
+;;              (retry 3
+;;                     (lb-random
+;;                      (pool 10
+;;                            (cable 1
+;;                                   (healthy-lb
+;;                                    (healthy-adservers 23))))))))
