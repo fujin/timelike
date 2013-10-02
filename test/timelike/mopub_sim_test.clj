@@ -168,10 +168,10 @@
 ;;   (adserver-faulty-random-test 8))
 
 (deftest ^:leastconn adserver-faulty-leastconn
-  (adserver-faulty-leastconn-test))
+  (adserver-faulty-leastconn-test proxies instances processes))
 
 (deftest ^:proposed ^:hybrid adserver-hybrid
-  (proposed-adserver-faulty-test))
+  (proposed-adserver-faulty-test proxies instances processes))
 
 ;; (deftest ^:current production-adserver-current-faulty
 ;;   (test-node "Current: Retry -> 10x random adserver-proxy -> 215 faulty Adserver processes"
