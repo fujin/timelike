@@ -69,7 +69,7 @@
   "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
   []
   (cable 1
-         (queue-exclusive
+         (queue-fixed-concurrency 32
           (delay-fixed 5
                        (delay-exponential 40
                                           (server :libevent))))))
@@ -79,7 +79,7 @@
   []
   (cable 1
          (faulty 20000 1000
-                 (queue-exclusive
+                 (queue-fixed-concurrency 32
                   (delay-fixed 5
                                (delay-exponential 40
                                                   (server :libevent)))))))
@@ -88,7 +88,7 @@
   "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
   []
   (cable 1
-         (queue-exclusive
+         (queue-fixed-concurrency 116
           (delay-fixed 5
                        (delay-exponential 300
                                           (server :libevent))))))
@@ -97,7 +97,7 @@
   []
   (cable 1
          (faulty 20000 1000
-                 (queue-exclusive
+                 (queue-fixed-concurrency 116
                   (delay-fixed 5
                                (delay-exponential 300
                                                   (server :libevent)))))))
