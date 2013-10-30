@@ -48,13 +48,13 @@
     (println "99th %: " q99)
     (println "Max:    " q1)))
 
-(def n 1000000)
+(def n 100000)
+(def interval 1.5)
 
-(def interval 1)
 (def pool-size 215)
 
 (def proxies 10)
-(def instances 250)
+(def instances 30)
 (def processes 7)
 
 (defn test-node
@@ -66,41 +66,41 @@
     (println)))
 
 (defn adserver
-  "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
+  "Healthy Adserver"
   []
   (cable 1
          (queue-fixed-concurrency 32
-          (delay-fixed 5
-                       (delay-exponential 40
-                                          (server :libevent))))))
+                                  (delay-fixed 5
+                                               (delay-exponential 40
+                                                                  (server :libevent))))))
 
 (defn faulty-adserver
-  "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
+  "90% Avail Adserer"
   []
   (cable 1
          (faulty 20000 1000
                  (queue-fixed-concurrency 32
-                  (delay-fixed 5
-                               (delay-exponential 40
-                                                  (server :libevent)))))))
+                                          (delay-fixed 5
+                                                       (delay-exponential 40
+                                                                          (server :libevent)))))))
 
 (defn marketplace
-  "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
+  "Healthy Marketplace"
   []
   (cable 1
          (queue-fixed-concurrency 116
-          (delay-fixed 5
-                       (delay-exponential 300
-                                          (server :libevent))))))
+                                  (delay-fixed 5
+                                               (delay-exponential 100
+                                                                  (server :libevent))))))
 (defn faulty-marketplace
-  "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
+  "90% Avail Marketplace"
   []
   (cable 1
          (faulty 20000 1000
                  (queue-fixed-concurrency 116
-                  (delay-fixed 5
-                               (delay-exponential 300
-                                                  (server :libevent)))))))
+                                          (delay-fixed 5
+                                                       (delay-exponential 100
+                                                                          (server :libevent)))))))
 
 (defn adservers
   "A pool of n adservers"
@@ -250,8 +250,8 @@
 ;; (deftest ^:leastconn marketplace-faulty-leastconn
 ;;   (marketplace-faulty-leastconn-test proxies instances processes))
 
- (deftest ^:proposed ^:hybrid marketplace-hybrid
-   (proposed-marketplace-faulty-test proxies instances processes))
+(deftest ^:proposed ^:hybrid marketplace-hybrid
+  (proposed-marketplace-faulty-test proxies instances processes))
 
 (deftest ^:proposed ^:hybrid marketplace-hybrid-non-fault
   (proposed-marketplace-non-faulty-test proxies instances processes))
