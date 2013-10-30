@@ -48,12 +48,12 @@
     (println "99th %: " q99)
     (println "Max:    " q1)))
 
-(def n 10000)
+(def n 1000000)
 
 (def interval 1)
 (def pool-size 215)
 
-(def proxies 30)
+(def proxies 10)
 (def instances 250)
 (def processes 7)
 
