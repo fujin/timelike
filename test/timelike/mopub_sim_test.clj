@@ -63,35 +63,61 @@
     (pstats @results)
     (println)))
 
-(defn dyno
-  "A singlethreaded, request-queuing server, with a fixed per-request
-  overhead plus an exponentially distributed time to process the request,
-  connected by a short network cable."
+(defn adserver
+  "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
   []
-  (cable 2
-         (queue-exclusive
-          (delay-fixed 20
-                       (delay-exponential 100
-                                          (server :rails))))))
+  (cable 1
+         (queue-fixed-concurrency 100
+                                  (delay-fixed 5
+                                               (delay-exponential 40
+                                                                  (server :libevent))))))
 
-(defn faulty-dyno
-  "Like a dyno, but only 90% available."
+(defn faulty-adserver
+  "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
   []
-  (cable 2
+  (cable 1
          (faulty 20000 1000
-                 (queue-exclusive
-                  (delay-fixed 20
-                               (delay-exponential 100
-                                                  (server :rails)))))))
+                 (queue-fixed-concurrency 100
+                                          (delay-fixed 5
+                                                       (delay-exponential 40
+                                                                          (server :libevent)))))))
 
-(defn dynos
-  "A pool of n dynos"
-  [n]
-  (pool n (dyno)))
+(defn marketplace
+  "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
+  []
+  (cable 1
+         (queue-fixed-concurrency 100
+                                  (delay-fixed 5
+                                               (delay-exponential 300
+                                                                  (server :libevent))))))
+(defn faulty-marketplace
+  "Supposed to smell something like a libev based MPX process. Let's say it can handle 100 concurrent requests."
+  []
+  (cable 1
+         (faulty 20000 1000
+                 (queue-fixed-concurrency 100
+                                          (delay-fixed 5
+                                                       (delay-exponential 300
+                                                                          (server :libevent)))))))
 
-(defn faulty-dynos
+(defn adservers
+  "A pool of n adservers"
   [n]
-  (pool n (faulty-dyno)))
+  (pool n (adserver)))
+
+(defn faulty-adservers
+  [n]
+  (pool n (faulty-adserver)))
+
+(defn marketplaces
+  "A pool of n marketplaces"
+  [n]
+  (pool n (marketplace)))
+
+(defn faulty-marketplaces
+  [n]
+  (pool n (faulty-marketplace)))
+
 
 (defn faulty-lb
   [pool]
@@ -106,7 +132,7 @@
                     (lb-random
                      (pool n
                            (lb-random
-                            (dynos pool-size)))))))
+                            (adservers pool-size)))))))
 
 (defn adserver-leastconn-test
   [n]
@@ -115,7 +141,7 @@
                     (lb-random
                      (pool n
                            (lb-min-conn :lb {:error-hold-time 1000}
-                                        (dynos pool-size)))))))
+                                        (adservers pool-size)))))))
 
 (defn adserver-faulty-random-test
   [n]
@@ -124,13 +150,13 @@
                     (lb-random
                      (pool n
                            (lb-random
-                            (faulty-dynos pool-size)))))))
+                            (faulty-adservers pool-size)))))))
 
-(defn adserver-faulty-leastconn-test
+(defn marketplace-faulty-leastconn-test
   [proxies instances processes]
   (test-node
    (str proxies
-        " lc proxies in front of one pool of "
+        " lc marketplace proxies in front of one (shared) pool of "
         (* instances processes)
         " processes")
    (retry 3
@@ -138,24 +164,54 @@
            (pool proxies
                  (cable 5
                         (faulty-lb
-                         (faulty-dynos (* instances processes)))))))))
+                         (faulty-marketplaces (* instances processes)))))))))
+
+(defn adserver-faulty-leastconn-test
+  [proxies instances processes]
+  (test-node
+   (str proxies
+        " lc adserver loadbalancers in front of one (shared) pool of "
+        (* instances processes)
+        " processes")
+   (retry 3
+          (lb-rr ;; simulating DNS RR
+           (pool proxies
+                 (cable 5
+                        (faulty-lb
+                         (faulty-adservers (* instances processes)))))))))
 
 
 (defn proposed-adserver-faulty-test
   [proxies instances processes]
   (test-node
    (str proxies
-        " random proxies in front of "
+        " random adserver loadbalancers in front of "
         instances
         " instances, each w/ distinct pool of least-conn "
         processes
-        " processes over loopback")
+        " processes over loopback reverse proxy")
    (retry 3
           (lb-rr ;; via anycast IPv4 with any luck
            (pool proxies
                  (cable 5
                         (faulty-lb
-                         (faulty-dynos 23))))))))
+                         (faulty-adservers 23))))))))
+
+(defn proposed-marketplace-faulty-test
+  [proxies instances processes]
+  (test-node
+   (str proxies
+        " random marketplace loadbalancers in front of "
+        instances
+        " instances, each w/ distinct pool of least-conn "
+        processes
+        " processes over loopback reverse proxy")
+   (retry 3
+          (lb-rr ;; via anycast IPv4 with any luck
+           (pool proxies
+                 (cable 5
+                        (faulty-lb
+                         (faulty-marketplaces 23))))))))
 
 
 ;; (deftest ^:random adserver-random-8
@@ -172,6 +228,12 @@
 
 (deftest ^:proposed ^:hybrid adserver-hybrid
   (proposed-adserver-faulty-test proxies instances processes))
+
+(deftest ^:leastconn marketplace-faulty-leastconn
+  (marketplace-faulty-leastconn-test proxies instances processes))
+
+(deftest ^:proposed ^:hybrid marketplace-hybrid
+  (proposed-marketplace-faulty-test proxies instances processes))
 
 ;; (deftest ^:current production-adserver-current-faulty
 ;;   (test-node "Current: Retry -> 10x random adserver-proxy -> 215 faulty Adserver processes"
