@@ -53,9 +53,9 @@
 (def interval 1)
 (def pool-size 215)
 
-(def proxies 10)
-(def instances 200)
-(def processes 23)
+(def proxies 30)
+(def instances 250)
+(def processes 7)
 
 (defn test-node
   [name node]
